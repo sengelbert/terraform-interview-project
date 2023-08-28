@@ -8,18 +8,21 @@ Design, Architecture & Notes:
   - Internet Gateway
   - NAT Gateway
   - Route table and routes
-- Bastion Server
-  - Public subnet
-  - Access via port 22 and SSH key
-  - SSM started but needs to be completed
-  - Cloudwatch alarm, needs more
-- Application Server
-  - Private subnet
-  - Access via Bastion, port 22 and SSH key
-  - SSM started but needs to be completed
-  - Cloudwatch alarm, needs more
-  - IAM role with access to write to application log bucket
+- EC2  
+![Alt text](img/ec2.png "EC2")
+  - Bastion Server
+    - Public subnet
+    - Access via port 22 and SSH key
+    - SSM started but needs to be completed
+    - Cloudwatch alarm, needs more
+  - Application Server
+    - Private subnet
+    - Access via Bastion, port 22 and SSH key
+    - SSM started but needs to be completed
+    - Cloudwatch alarm, needs more
+    - IAM role with access to write to application log bucket
 - RDS
+![Alt text](img/rds.png "EC2")
   - 2 subnets
   - Snapshots configured but needs more work
   - Cloudwatch alarm, needs more
@@ -29,9 +32,11 @@ Design, Architecture & Notes:
 - SNS
   - Created for Cloudwatch alarms, needs more configuration for endpoint (email, API, etc)
 - S3
+![Alt text](img/s3.png "EC2")
   - Application log bucket
   - Extra logging bucket created for S3 access logs
 - Cloudwatch
+![Alt text](img/dashboard.png "EC2")
   - Mentioned above, alarms and dashboard would need to be built out more
 
 The VPC subnets were created to separate resources by access (private/public) and resource type
