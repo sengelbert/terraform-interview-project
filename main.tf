@@ -198,6 +198,21 @@ resource "aws_instance" "bastion_server" {
   }
 }
 
+# Bastion Cloudwatch
+resource "aws_cloudwatch_metric_alarm" "bastion_cpu_alarm" {
+  alarm_name = "bastion-cpu-alarm"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods = 2
+  metric_name = "CPUUtilization"
+  namespace = "AWS/EC2"
+  period = 120
+  statistic = "Average"
+  threshold = 80
+  alarm_description = "This metric monitors ec2 cpu utilization"
+  alarm_actions = [aws_sns_topic.application_event.arn]
+  ok_actions = [aws_sns_topic.application_event.arn]
+}
+
 # Application Instance
 resource "aws_instance" "application_server" {
   ami = var.application_ami_id
@@ -210,6 +225,21 @@ resource "aws_instance" "application_server" {
   tags = {
     Name = "ApplicationServerInstance"
   }
+}
+
+# Bastion Cloudwatch
+resource "aws_cloudwatch_metric_alarm" "application_cpu_alarm" {
+  alarm_name = "application-cpu-alarm"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods = 2
+  metric_name = "CPUUtilization"
+  namespace = "AWS/EC2"
+  period = 120
+  statistic = "Average"
+  threshold = 80
+  alarm_description = "This metric monitors ec2 cpu utilization"
+  alarm_actions = [aws_sns_topic.application_event.arn]
+  ok_actions = [aws_sns_topic.application_event.arn]
 }
 
 # IAM Role for Bastion Instance
@@ -266,6 +296,7 @@ resource "aws_iam_instance_profile" "application_instance_profile" {
   role = aws_iam_role.application_instance_role.name
 }
 
+# S3 Write access
 resource "aws_iam_policy" "application_s3_write_policy" {
   name = "application_s3_write_policy"
 
@@ -273,9 +304,14 @@ resource "aws_iam_policy" "application_s3_write_policy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Action = ["s3:ListAllMyBuckets", "s3:ListBucket", "s3:PutObject"]
+        Action = ["s3:ListAllMyBuckets"]
         Effect = "Allow"
         Resource = "*"
+      },
+      {
+        Action = ["s3:ListBucket", "s3:PutObject"]
+        Effect = "Allow"
+        Resource = ["${aws_s3_bucket.application_log_bucket.arn}", "${aws_s3_bucket.application_log_bucket.arn}/*"]
       },
     ]
   })
@@ -285,12 +321,59 @@ output "account_id" {
   value = local.account_id
 }
 
-# S3 Bucket
+# S3 Buckets
+# S3 Application Log Bucket
 resource "aws_s3_bucket" "application_log_bucket" {
   bucket = "app-log-bucket-${local.account_id}"
 }
 
-# RDS Instance
+# S3 Application Log Bucket Versioning
+resource "aws_s3_bucket_versioning" "application_log_bucket_versioning" {
+  bucket = aws_s3_bucket.application_log_bucket.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+# S3 Log Bucket
+resource "aws_s3_bucket" "log_bucket" {
+  bucket = "log-bucket-${local.account_id}"
+}
+
+# S3 bucket policy for logging
+resource "aws_s3_bucket_policy" "allow_bucket_logging" {
+  bucket = aws_s3_bucket.log_bucket.id
+  policy = <<EOF
+
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "S3ServerAccessLogsPolicy",
+            "Effect": "Allow",
+            "Principal": {
+                "Service": "logging.s3.amazonaws.com"
+            },
+            "Action": [
+                "s3:PutObject"
+            ],
+            "Resource": "${aws_s3_bucket.log_bucket.arn}/*"
+        }
+    ]
+}
+EOF
+}
+
+# S3 logging from app log bucket to log bucket
+resource "aws_s3_bucket_logging" "example" {
+  bucket = aws_s3_bucket.application_log_bucket.id
+
+  target_bucket = aws_s3_bucket.log_bucket.id
+  target_prefix = "app/log/"
+}
+
+# RDS
+# RDS Subnet setup
 resource "aws_db_subnet_group" "application_rds_subnet_group" {
   name = "application_rds_subnet_group"
   subnet_ids = [aws_subnet.private_db_subnet1.id, aws_subnet.private_db_subnet2.id]
@@ -300,12 +383,14 @@ resource "aws_db_subnet_group" "application_rds_subnet_group" {
   }
 }
 
+# RDS Instance
 resource "aws_db_instance" "application_rds" {
+  identifier = "application-rds"
   allocated_storage = 10
   db_name = "mydb"
   engine = "mysql"
   engine_version = "5.7"
-  instance_class = "db.t3.micro"
+  instance_class = var.rds_instance_type
   username = "admin"
   parameter_group_name = "default.mysql5.7"
   storage_encrypted = true
@@ -313,4 +398,124 @@ resource "aws_db_instance" "application_rds" {
   manage_master_user_password = true
   skip_final_snapshot = true
   db_subnet_group_name = aws_db_subnet_group.application_rds_subnet_group.name
+  backup_retention_period = 7
+  maintenance_window = "Fri:09:00-Fri:09:30"
+}
+
+# RDS Snapshot
+resource "aws_db_snapshot" "application_rds_snapshot" {
+  db_instance_identifier = aws_db_instance.application_rds.identifier
+  db_snapshot_identifier = "application-db-snapshot"
+}
+
+# RDS Cloudwatch
+resource "aws_db_event_subscription" "application_rds_event" {
+  name = "rds-event-sub"
+  sns_topic = aws_sns_topic.application_event.arn
+
+  source_type = "db-instance"
+  source_ids = [aws_db_instance.application_rds.identifier]
+
+  event_categories = [
+    "availability",
+    "deletion",
+    "failover",
+    "failure",
+    "low storage",
+    "maintenance",
+    "notification",
+    "read replica",
+    "recovery",
+    "restoration",
+  ]
+}
+
+# RDS Cloudwatch
+resource "aws_cloudwatch_metric_alarm" "rds_cpu_alarm" {
+  alarm_name = "rds_cpu_alarm"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods = "1"
+  metric_name = "CPUUtilization"
+  namespace = "AWS/RDS"
+  period = "600"
+  statistic = "Average"
+  threshold = 80
+  alarm_description = "Average database CPU utilization over last 10 minutes too high"
+  alarm_actions = [aws_sns_topic.application_event.arn]
+  ok_actions = [aws_sns_topic.application_event.arn]
+
+  dimensions = {
+    DBInstanceIdentifier = aws_db_instance.application_rds.identifier
+  }
+}
+
+# SNS
+# SNS for alerts
+resource "aws_sns_topic" "application_event" {
+  name = "application-events-topic"
+}
+
+# Cloudwatch Dashboard
+resource "aws_cloudwatch_dashboard" "application_dashboard" {
+  dashboard_name = "application-dashboard"
+
+  dashboard_body = jsonencode({
+        "widgets": [
+        {
+            "height": 6,
+            "width": 12,
+            "y": 0,
+            "x": 0,
+            "type": "metric",
+            "properties": {
+                "metrics": [
+                    [ "AWS/EC2", "CPUUtilization", "InstanceId", "${aws_instance.bastion_server.id}", { "region": "${var.aws_region}" } ]
+                ],
+                "period": 300,
+                "region": "${var.aws_region}",
+                "stat": "Average",
+                "title": "Bastion EC2 Instance CPU"
+            }
+        },
+        {
+            "type": "metric",
+            "x": 0,
+            "y": 6,
+            "width": 12,
+            "height": 6,
+            "properties": {
+                "period": 300,
+                "metrics": [
+                    [ "AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", "${aws_db_instance.application_rds.id}", { "label": "${aws_db_instance.application_rds.id}", "region": "${var.aws_region}" } ]
+                ],
+                "region": "${var.aws_region}",
+                "stat": "Average",
+                "title": "Application RDS Instance CPU",
+                "yAxis": {
+                    "left": {
+                        "min": 0
+                    }
+                },
+                "view": "timeSeries",
+                "stacked": false
+            }
+        },
+        {
+            "height": 6,
+            "width": 12,
+            "y": 0,
+            "x": 12,
+            "type": "metric",
+            "properties": {
+                "metrics": [
+                    [ "AWS/EC2", "CPUUtilization", "InstanceId", "${aws_instance.application_server.id}", { "region": "${var.aws_region}" } ]
+                ],
+                "period": 300,
+                "region": "${var.aws_region}",
+                "stat": "Average",
+                "title": "Application EC2 Instance CPU"
+            }
+        }
+    ]
+  })
 }

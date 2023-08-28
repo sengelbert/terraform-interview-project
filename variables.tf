@@ -64,3 +64,13 @@ variable key_name {
   description = "SSH Key Name"
   type = string
 }
+
+variable rds_instance_type {
+  type = string
+  default = "db.t3.micro"
+}
+
+variable aws_region {
+  type = string
+  default = "us-west-2"
+}
