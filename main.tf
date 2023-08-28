@@ -54,7 +54,7 @@ resource "aws_subnet" "private_db_subnet1" {
   availability_zone = element(data.aws_availability_zones.available.names, 0)
   cidr_block = var.private_db_subnet1_cidr
   tags = {
-    Name = "${var.environment_name} Private DB Subnet (AZ2)"
+    Name = "${var.environment_name} Private DB Subnet (AZ1)"
   }
 }
 
@@ -400,6 +400,21 @@ resource "aws_db_instance" "application_rds" {
   db_subnet_group_name = aws_db_subnet_group.application_rds_subnet_group.name
   backup_retention_period = 7
   maintenance_window = "Fri:09:00-Fri:09:30"
+}
+
+resource "aws_security_group" "application_rds_security_group" {
+  name = "application-rds-sg"
+  description = "Security group for RDS"
+  vpc_id = aws_vpc.vpc.id
+}
+
+resource "aws_security_group_rule" "application_rds_security_group_rule" {
+  type = "ingress"
+  protocol = "tcp"
+  from_port = 3306
+  to_port = 3306
+  security_group_id = aws_security_group.application_rds_security_group.id
+  source_security_group_id = aws_security_group.application_security_group.id
 }
 
 # RDS Snapshot

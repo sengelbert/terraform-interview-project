@@ -25,6 +25,7 @@ Design, Architecture & Notes:
   - Cloudwatch alarm, needs more
   - More setup needed when details are ready
   - Secrets created and stored in Secrets Manager
+  - Security group access over MySQL port from Application server
 - SNS
   - Created for Cloudwatch alarms, needs more configuration for endpoint (email, API, etc)
 - S3
@@ -58,9 +59,10 @@ Improvements:
 - SSM agent instead of SSH keys...I started this but need to complete
 - A standardized approach for tags
 - More Cloudwatch alarm and dashboard work needed
-- More RDS setup and configuration when details are ready
+- More RDS setup and configuration when details are available
 - More HA and DR work needed
 - Get latest Amazon Linux AMI always
+- More automations
 
 Prerequisites & Assumptions:
 - SSH key manually created and name passed into prompt
@@ -87,4 +89,4 @@ Test Steps:
   - `touch test.txt`
   - `aws s3 cp test.txt s3://<bucket name>/`
     - should have success and file in application log bucket
-    - should have log file(s) in S3 access log bucket as well
+    - should have log file(s) in S3 access log bucket as well (it can take a few minutes)
